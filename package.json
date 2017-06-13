@@ -1,0 +1,33 @@
+{
+  "name": "arc-rpc",
+  "version": "1.1.0",
+  "description": "Asynchronous Remote Classes make RPC simple",
+  "main": "index.js",
+  "dependencies": {
+    "node-ipc": "^9.0.1",
+    "tweetnacl": "^1.0.0",
+    "uuid": "^3.0.1"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "rpc",
+    "ipc",
+    "remote",
+    "clusters",
+    "child",
+    "spawned"
+  ],
+  "author": "installgen2",
+  "license": "GPL-3.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/notgne2/arc-rpc.git"
+  },
+  "bugs": {
+    "url": "https://github.com/notgne2/arc-rpc/issues"
+  },
+  "homepage": "https://github.com/notgne2/arc-rpc#readme"
+}
