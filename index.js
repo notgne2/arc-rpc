@@ -12,6 +12,12 @@ class Rpc extends EventEmitter {
 		// Induce spawning of parent/super event emitter
 		super ();
 
+		// Set own ID for identification
+		this.id = uuid ();
+
+		// Set mock for accessing methods
+		this.class = this._genClass ();
+
 		// Set private variables
 		this._stream = stream;
 		this._child = child;
@@ -20,15 +26,23 @@ class Rpc extends EventEmitter {
 		this._listen ();
 	}
 
-	genClass () {
+	send (id, ...params) {
+		// Emit event to remote
+		this._steam.send ('evt', {
+			params : params,
+			id     : id,
+		});
+	}
+
+	_genClass () {
 		// Create handler for proxy class
 		let proxyHandler = {
 			// Handle get on proxy class
 			get: (target, property) => {
 				// Return function which takes all trailing params
-				return (...params) => {
+				return async (...params) => {
 					// Issue remote call with property name and recieved params
-					this._call (property, params);
+					return await this._call (property, params);
 				};
 			},
 		};
@@ -66,6 +80,12 @@ class Rpc extends EventEmitter {
 				isError: false,
 				data: response,
 			});
+		});
+
+		// Listen for remote user events
+		this._stream.on ('evt', (data) => {
+			// Rebroadcast to listeners on self
+			this.emit ('event.' + data.id, ...data.params);
 		});
 	}
 
