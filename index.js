@@ -150,6 +150,7 @@ class Rpc extends EventEmitter {
 
 	// Induced by implementations of `Rpc`
 	_disconnect () {
+		// Emit disconnect event so users of RPC will be aware
 		this.emit ('disconnect');
 	}
 }
@@ -163,6 +164,7 @@ class ServerIpcInterface extends EventEmitter {
 		this._onDisconnect = onDisconnect;
 		this._cryptKey     = cryptKey;
 
+		// Listen for IPC data
 		this._listen ();
 	}
 
@@ -193,6 +195,7 @@ class ServerIpcInterface extends EventEmitter {
 				return // Not for our socket, ignore
 			}
 
+			// Run self ondisconnect to handle server disconnection
 			this._onDisconnect ();
 		});
 	}
@@ -264,7 +267,9 @@ class ClientIpcInterface extends EventEmitter {
 		ipc.config.retry  = 1500;
 		ipc.config.silent = true;
 
+		// Connect to server on specified namespace
 		ipc.connectTo (namespace, () => {
+			// Listen for events
 			this._listen ();
 		});
 	}
@@ -319,4 +324,5 @@ class ClientIpcRpc extends Rpc {
 	}
 }
 
-exports = module.exports = { ClientIpcRpc, ServerIpcRpcMaster };
+// Export classes
+exports = module.exports = { Rpc, ClientIpcRpc, ServerIpcRpcMaster };
