@@ -51,10 +51,10 @@ class Rpc extends EventEmitter {
 		this._stream = stream;
 		this._child = child;
 
-		// Listen for events
-		this._listen ();
+		// Listen for events if have child class
+		if (child != null) this._listen ();
 	}
-	
+
 	_genClass () {
 		// Create handler for proxy class
 		let proxyHandler = {
@@ -90,8 +90,18 @@ class Rpc extends EventEmitter {
 			// Create response variable on higher scope
 			let response = null;
 
-			// Find internal handler, TODO: handle missing
+			// Find internal handler
 			let handler = this._child[call.fnId];
+
+			// Handle inexistence
+			if (handler == null) {
+				this._stream.send ('fnRes.' + call.resId, {
+					isError: true,
+					data: "No such method",
+				});
+
+				return;
+			}
 
 			// Try getting response from handler or handle error
 			try {
@@ -103,6 +113,8 @@ class Rpc extends EventEmitter {
 					isError: true,
 					data: err,
 				});
+
+				return;
 			}
 
 			// Emit success and function return result
