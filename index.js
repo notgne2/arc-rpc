@@ -8,320 +8,320 @@ const nacl         = require ('tweetnacl');
 
 // Create RPC events class
 class RpcEvents extends EventEmitter {
-	constructor (stream) {
-		super ();
+  constructor (stream) {
+    super ();
 
-		this._stream = stream;
-		this._listen ();
-	}
+    this._stream = stream;
+    this._listen ();
+  }
 
-	send (id, ...params) {
-		// Emit event to remote
-		this._stream.send ('evt', {
-			params : params,
-			id     : id,
-		});
-	}
+  send (id, ...params) {
+    // Emit event to remote
+    this._stream.send ('evt', {
+      params : params,
+      id     : id,
+    });
+  }
 
-	_listen () {
-		// Listen for remote user events
-		this._stream.on ('evt', (data) => {
-			// Rebroadcast to listeners on self
-			this.emit (data.id, ...data.params);
-		});
-	}
+  _listen () {
+    // Listen for remote user events
+    this._stream.on ('evt', (data) => {
+      // Rebroadcast to listeners on self
+      this.emit (data.id, ...data.params);
+    });
+  }
 }
 
 // Create general RPC class
 class Rpc extends EventEmitter {
-	constructor (stream, child) {
-		// Induce spawning of parent/super event emitter
-		super ();
+  constructor (stream, child) {
+    // Induce spawning of parent/super event emitter
+    super ();
 
-		// Set own ID for identification
-		this.id = uuid ();
+    // Set own ID for identification
+    this.id = uuid ();
 
-		// Set mock for accessing methods
-		this.class = this._genClass ();
+    // Set mock for accessing methods
+    this.class = this._genClass ();
 
-		// Set child for handling plain events
-		this.events = new RpcEvents (stream);
+    // Set child for handling plain events
+    this.events = new RpcEvents (stream);
 
-		// Set private variables
-		this._stream = stream;
-		this._child = child;
+    // Set private variables
+    this._stream = stream;
+    this._child = child;
 
-		// Listen for events if have child class
-		if (child != null) this._listen ();
-	}
+    // Listen for events if have child class
+    if (child != null) this._listen ();
+  }
 
-	_genClass () {
-		// Create handler for proxy class
-		let proxyHandler = {
-			// Handle get on proxy class
-			get: (target, property) => {
-				// Return function which takes all trailing params
-				return (async (...params) => {
-					// Issue remote call with property name and recieved params
-					let result = await this._call (property, params);
+  _genClass () {
+    // Create handler for proxy class
+    let proxyHandler = {
+      // Handle get on proxy class
+      get: (target, property) => {
+        // Return function which takes all trailing params
+        return (async (...params) => {
+          // Issue remote call with property name and recieved params
+          let result = await this._call (property, params);
 
-					// Check if response is error
-					if (result.isError) {
-						// Throw if error to emulate native function
-						throw result.data;
-					} else {
-						// Non error, simply return data
-						return result.data;
-					}
-				});
-			},
-		};
+          // Check if response is error
+          if (result.isError) {
+            // Throw if error to emulate native function
+            throw result.data;
+          } else {
+            // Non error, simply return data
+            return result.data;
+          }
+        });
+      },
+    };
 
-		// Create a new `Proxy` to act as our class
-		let proxy = new Proxy ({}, proxyHandler);
+    // Create a new `Proxy` to act as our class
+    let proxy = new Proxy ({}, proxyHandler);
 
-		// Return the proxy
-		return proxy;
-	}
+    // Return the proxy
+    return proxy;
+  }
 
-	_listen () {
-		// Listen for function calls
-		this._stream.on ('fnCall', async (call) => {
-			// Create response variable on higher scope
-			let response = null;
+  _listen () {
+    // Listen for function calls
+    this._stream.on ('fnCall', async (call) => {
+      // Create response variable on higher scope
+      let response = null;
 
-			// Find internal handler
-			let handler = this._child[call.fnId];
+      // Find internal handler
+      let handler = this._child[call.fnId];
 
-			// Handle inexistence
-			if (handler == null) {
-				this._stream.send ('fnRes.' + call.resId, {
-					isError: true,
-					data: "No such method",
-				});
+      // Handle inexistence
+      if (handler == null) {
+        this._stream.send ('fnRes.' + call.resId, {
+          isError: true,
+          data: "No such method",
+        });
 
-				return;
-			}
+        return;
+      }
 
-			// Try getting response from handler or handle error
-			try {
-				// Run with applied params and await result
-				response = await handler (...call.params);
-			} catch (err) {
-				// Emit error as response
-				this._stream.send ('fnRes.' + call.resId, {
-					isError: true,
-					data: err,
-				});
+      // Try getting response from handler or handle error
+      try {
+        // Run with applied params and await result
+        response = await handler (...call.params);
+      } catch (err) {
+        // Emit error as response
+        this._stream.send ('fnRes.' + call.resId, {
+          isError: true,
+          data: err,
+        });
 
-				return;
-			}
+        return;
+      }
 
-			// Emit success and function return result
-			this._stream.send ('fnRes.' + call.resId, {
-				isError: false,
-				data: response,
-			});
-		});
-	}
+      // Emit success and function return result
+      this._stream.send ('fnRes.' + call.resId, {
+        isError: false,
+        data: response,
+      });
+    });
+  }
 
-	async _call (fnId, params) {
-		// Generate ID to listen for responses on
-		let resId = uuid ();
+  async _call (fnId, params) {
+    // Generate ID to listen for responses on
+    let resId = uuid ();
 
-		// Emit the remote call event
-		this._stream.send ('fnCall', {
-			fnId: fnId,
-			resId: resId,
-			params: params,
-		});
+    // Emit the remote call event
+    this._stream.send ('fnCall', {
+      fnId: fnId,
+      resId: resId,
+      params: params,
+    });
 
-		// Create and await a promise to get function response
-		let response = await new Promise ((resolve, reject) => {
-			// Listen for a response on generated response ID
-			this._stream.once ('fnRes.' + resId, (response) => {
-				// Resolve promise with recieved data
-				resolve (response);
-			});
-		});
+    // Create and await a promise to get function response
+    let response = await new Promise ((resolve, reject) => {
+      // Listen for a response on generated response ID
+      this._stream.once ('fnRes.' + resId, (response) => {
+        // Resolve promise with recieved data
+        resolve (response);
+      });
+    });
 
-		return response;
-	}
+    return response;
+  }
 
-	// Induced by implementations of `Rpc`
-	_disconnect () {
-		// Emit disconnect event so users of RPC will be aware
-		this.emit ('disconnect');
-	}
+  // Induced by implementations of `Rpc`
+  _disconnect () {
+    // Emit disconnect event so users of RPC will be aware
+    this.emit ('disconnect');
+  }
 }
 
 class ServerIpcInterface extends EventEmitter {
-	constructor (socket, cryptKey, onDisconnect) {
-		super ();
+  constructor (socket, cryptKey, onDisconnect) {
+    super ();
 
-		// Set private class variables
-		this._socket       = socket;
-		this._onDisconnect = onDisconnect;
-		this._cryptKey     = cryptKey;
+    // Set private class variables
+    this._socket       = socket;
+    this._onDisconnect = onDisconnect;
+    this._cryptKey     = cryptKey;
 
-		// Listen for IPC data
-		this._listen ();
-	}
+    // Listen for IPC data
+    this._listen ();
+  }
 
-	_listen () {
-		ipc.server.on ('message', (data, socket) => {
-			if (socket.id != this._socket.id) {
-				return // Not for our socket, ignore
-			}
+  _listen () {
+    ipc.server.on ('message', (data, socket) => {
+      if (socket.id != this._socket.id) {
+        return // Not for our socket, ignore
+      }
 
-			// silently ignore bad data
-			if (data.nonce == null || data.encrypted == null) return;
+      // silently ignore bad data
+      if (data.nonce == null || data.encrypted == null) return;
 
-			// open nacl secret box
-			let decrypted = nacl.secretbox.open (Buffer.from (data.encrypted, 'base64'), Buffer.from (data.nonce, 'base64'), this._cryptKey);
+      // open nacl secret box
+      let decrypted = nacl.secretbox.open (Buffer.from (data.encrypted, 'base64'), Buffer.from (data.nonce, 'base64'), this._cryptKey);
 
-			// silently ignore bad crypt, TODO: handle
-			if (decrypted == false) return;
+      // silently ignore bad crypt, TODO: handle
+      if (decrypted == false) return;
 
-			// decode JSON message
-			let decoded = JSON.parse (Buffer.from (decrypted).toString ());
+      // decode JSON message
+      let decoded = JSON.parse (Buffer.from (decrypted).toString ());
 
-			// emit event
-			this.emit (decoded.id, decoded.data);
-		});
+      // emit event
+      this.emit (decoded.id, decoded.data);
+    });
 
-		ipc.server.on ('socket.disconnected', (socket) => {
-			if (socket.id != this._socket.id) {
-				return // Not for our socket, ignore
-			}
+    ipc.server.on ('socket.disconnected', (socket) => {
+      if (socket.id != this._socket.id) {
+        return // Not for our socket, ignore
+      }
 
-			// Run self ondisconnect to handle server disconnection
-			this._onDisconnect ();
-		});
-	}
+      // Run self ondisconnect to handle server disconnection
+      this._onDisconnect ();
+    });
+  }
 
-	send (id, data) {
-		// Encode object to JSON
-		let encoded = JSON.stringify ({
-		  'id'   : id,
-		  'data' : data
-		});
+  send (id, data) {
+    // Encode object to JSON
+    let encoded = JSON.stringify ({
+      'id'   : id,
+      'data' : data
+    });
 
-		// Generate a random nonce for cryptography
-		let nonce = nacl.randomBytes (nacl.box.nonceLength);
+    // Generate a random nonce for cryptography
+    let nonce = nacl.randomBytes (nacl.box.nonceLength);
 
-		// Encrypt encoded object using nonce, hardcoded server public key and our secret key
-		let encrypted = nacl.secretbox (Buffer.from (encoded), nonce, this._cryptKey);
+    // Encrypt encoded object using nonce, hardcoded server public key and our secret key
+    let encrypted = nacl.secretbox (Buffer.from (encoded), nonce, this._cryptKey);
 
-		// Send nonce, from secret key, and encrypted data over IPC
-		ipc.server.emit (this._socket, 'message', {
-		  'nonce'     : Buffer.from (nonce).toString ('base64'),
-		  'encrypted' : Buffer.from (encrypted).toString ('base64')
-		});
-	}
+    // Send nonce, from secret key, and encrypted data over IPC
+    ipc.server.emit (this._socket, 'message', {
+      'nonce'     : Buffer.from (nonce).toString ('base64'),
+      'encrypted' : Buffer.from (encrypted).toString ('base64')
+    });
+  }
 }
 
 class ServerIpcRpc extends Rpc {
-	constructor (socket, cryptKey, child) {
-		// Create event interface from provided ipc socket
-		let ipcInterface = new ServerIpcInterface (socket, cryptKey, () => {
-			// Induce self disconnect when socket interface disconnected
-			this._disconnect ();
-		});
+  constructor (socket, cryptKey, child) {
+    // Create event interface from provided ipc socket
+    let ipcInterface = new ServerIpcInterface (socket, cryptKey, () => {
+      // Induce self disconnect when socket interface disconnected
+      this._disconnect ();
+    });
 
-		// Create parent RPC instance using interface as stream
-		super (ipcInterface, child);
-	}
+    // Create parent RPC instance using interface as stream
+    super (ipcInterface, child);
+  }
 }
 
 class ServerIpcRpcMaster extends EventEmitter {
-	constructor(namespace, cryptKey, child) {
-		super ();
+  constructor(namespace, cryptKey, child) {
+    super ();
 
-		// Build IPC
-		ipc.config.id     = namespace;
-		ipc.config.retry  = 1500;
-		ipc.config.silent = true;
+    // Build IPC
+    ipc.config.id     = namespace;
+    ipc.config.retry  = 1500;
+    ipc.config.silent = true;
 
-		// Start IPC server
-		ipc.serve ();
-		ipc.server.start ();
+    // Start IPC server
+    ipc.serve ();
+    ipc.server.start ();
 
-		ipc.server.on ('connect', (socket) => {
-			let clientRpc = new ServerIpcRpc (socket, cryptKey, child);
-			this.emit ('client', clientRpc);
-		});
-	}
+    ipc.server.on ('connect', (socket) => {
+      let clientRpc = new ServerIpcRpc (socket, cryptKey, child);
+      this.emit ('client', clientRpc);
+    });
+  }
 }
 
 class ClientIpcInterface extends EventEmitter {
-	constructor (namespace, cryptKey) {
-		// Create parent event emitter
-		super ();
+  constructor (namespace, cryptKey) {
+    // Create parent event emitter
+    super ();
 
-		this._namespace = namespace;
-		this._cryptKey  = cryptKey;
+    this._namespace = namespace;
+    this._cryptKey  = cryptKey;
 
-		// build ipc
-		ipc.config.id     = namespace;
-		ipc.config.retry  = 1500;
-		ipc.config.silent = true;
+    // build ipc
+    ipc.config.id     = namespace;
+    ipc.config.retry  = 1500;
+    ipc.config.silent = true;
 
-		// Connect to server on specified namespace
-		ipc.connectTo (namespace, () => {
-			// Listen for events
-			this._listen ();
-		});
-	}
+    // Connect to server on specified namespace
+    ipc.connectTo (namespace, () => {
+      // Listen for events
+      this._listen ();
+    });
+  }
 
-	_listen () {
-		ipc.of[this._namespace].on ('message', (data) => {
-			// silently ignore bad data
-			if (data.nonce == null || data.encrypted == null) return;
+  _listen () {
+    ipc.of[this._namespace].on ('message', (data) => {
+      // silently ignore bad data
+      if (data.nonce == null || data.encrypted == null) return;
 
-			// open nacl secret box
-			let decrypted = nacl.secretbox.open (Buffer.from (data.encrypted, 'base64'), Buffer.from (data.nonce, 'base64'), this._cryptKey);
+      // open nacl secret box
+      let decrypted = nacl.secretbox.open (Buffer.from (data.encrypted, 'base64'), Buffer.from (data.nonce, 'base64'), this._cryptKey);
 
-			// silently ignore bad crypt, TODO: handle
-			if (decrypted == null) return;
+      // silently ignore bad crypt, TODO: handle
+      if (decrypted == null) return;
 
-			// decode JSON message
-			let decoded = JSON.parse (Buffer.from (decrypted).toString ());
+      // decode JSON message
+      let decoded = JSON.parse (Buffer.from (decrypted).toString ());
 
-			// emit event
-			this.emit (decoded.id, decoded.data);
-		});
-	}
+      // emit event
+      this.emit (decoded.id, decoded.data);
+    });
+  }
 
-	send (id, data) {
-		// Encode object to JSON
-		let encoded = JSON.stringify ({
-		  'id'   : id,
-		  'data' : data,
-		});
+  send (id, data) {
+    // Encode object to JSON
+    let encoded = JSON.stringify ({
+      'id'   : id,
+      'data' : data,
+    });
 
-		// Generate a random nonce for cryptography
-		let nonce = nacl.randomBytes (nacl.box.nonceLength)
+    // Generate a random nonce for cryptography
+    let nonce = nacl.randomBytes (nacl.box.nonceLength)
 
-		// Encrypt encoded object using nonce, hardcoded server public key and our secret key
-		let encrypted = nacl.secretbox (Buffer.from (encoded), nonce, this._cryptKey)
+    // Encrypt encoded object using nonce, hardcoded server public key and our secret key
+    let encrypted = nacl.secretbox (Buffer.from (encoded), nonce, this._cryptKey)
 
-		// Send nonce, from secret key, and encrypted data over IPC
-		ipc.of[this._namespace].emit ('message', {
-		  'nonce'     : Buffer.from (nonce).toString ('base64'),
-		  'encrypted' : Buffer.from (encrypted).toString ('base64')
-		});
-	}
+    // Send nonce, from secret key, and encrypted data over IPC
+    ipc.of[this._namespace].emit ('message', {
+      'nonce'     : Buffer.from (nonce).toString ('base64'),
+      'encrypted' : Buffer.from (encrypted).toString ('base64')
+    });
+  }
 }
 
 class ClientIpcRpc extends Rpc {
-	constructor (namespace, cryptKey, client) {
-		// Create client IPC interface for provided namespace
-		let ipcInterface = new ClientIpcInterface (namespace, cryptKey);
+  constructor (namespace, cryptKey, client) {
+    // Create client IPC interface for provided namespace
+    let ipcInterface = new ClientIpcInterface (namespace, cryptKey);
 
-		// Create parent RPC module using interface as stream
-		super (ipcInterface, client);
-	}
+    // Create parent RPC module using interface as stream
+    super (ipcInterface, client);
+  }
 }
 
 // Export classes
