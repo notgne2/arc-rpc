@@ -4,7 +4,7 @@
 const EventEmitter = require ('events').EventEmitter;
 const uuid         = require ('uuid');
 const ipc          = require ('node-ipc');
-const nacl         = require ('tweetnacljs');
+const nacl         = require ('tweetnacl');
 
 // Create general RPC class
 class Rpc extends EventEmitter {
@@ -40,10 +40,19 @@ class Rpc extends EventEmitter {
 			// Handle get on proxy class
 			get: (target, property) => {
 				// Return function which takes all trailing params
-				return async (...params) => {
+				return (async (...params) => {
 					// Issue remote call with property name and recieved params
-					return await this._call (property, params);
-				};
+					let result = await this._call (property, params);
+
+					// Check if response is error
+					if (result.isError) {
+						// Throw if error to emulate native function
+						throw result.data;
+					} else {
+						// Non error, simply return data
+						return result.data;
+					}
+				});
 			},
 		};
 
@@ -109,14 +118,7 @@ class Rpc extends EventEmitter {
 			});
 		});
 
-		// Check if response is error
-		if (response.isError) {
-			// Throw if error to emulate native function
-			throw new Error(response.data);
-		} else {
-			// Non error, simply return data
-			return response.data;
-		}
+		return response;
 	}
 
 	// Induced by implementations of `Rpc`
