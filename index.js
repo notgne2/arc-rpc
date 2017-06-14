@@ -28,7 +28,7 @@ class Rpc extends EventEmitter {
 
 	send (id, ...params) {
 		// Emit event to remote
-		this._steam.send ('evt', {
+		this._stream.send ('evt', {
 			params : params,
 			id     : id,
 		});
