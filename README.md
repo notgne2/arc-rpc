@@ -65,11 +65,15 @@ rpcMaster.on("client", (clientRpc) => {
 
 	// Call remote as if it was a local class instance
 	await clientRpc.class.clientTest()
-	
+
 	// This is garuanteed to be afterwards, as ES7 awaits are used
 	console.log("Remotely called client test!")
 })
 ```
+
+## Why are you encrypting IPC streams??
+
+This is made for a specific project, soon the node-ipc connections will be replaced with net sockets, or be replaced with a net library. I know, it's silly this way.
 
 ## Basic documentation
 

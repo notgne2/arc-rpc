@@ -1,6 +1,6 @@
 {
   "name": "arc-rpc",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "description": "Asynchronous Remote Classes make RPC simple",
   "main": "index.js",
   "dependencies": {
