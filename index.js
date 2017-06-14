@@ -6,6 +6,32 @@ const uuid         = require ('uuid');
 const ipc          = require ('node-ipc');
 const nacl         = require ('tweetnacl');
 
+// Create RPC events class
+class RpcEvents extends EventEmitter {
+	constructor (stream) {
+		super ();
+
+		this._stream = stream;
+		this._listen ();
+	}
+
+	send (id, ...params) {
+		// Emit event to remote
+		this._stream.send ('evt', {
+			params : params,
+			id     : id,
+		});
+	}
+
+	_listen () {
+		// Listen for remote user events
+		this._stream.on ('evt', (data) => {
+			// Rebroadcast to listeners on self
+			this.emit (data.id, ...data.params);
+		});
+	}
+}
+
 // Create general RPC class
 class Rpc extends EventEmitter {
 	constructor (stream, child) {
@@ -18,6 +44,9 @@ class Rpc extends EventEmitter {
 		// Set mock for accessing methods
 		this.class = this._genClass ();
 
+		// Set child for handling plain events
+		this.events = new RpcEvents (stream);
+
 		// Set private variables
 		this._stream = stream;
 		this._child = child;
@@ -25,15 +54,7 @@ class Rpc extends EventEmitter {
 		// Listen for events
 		this._listen ();
 	}
-
-	send (id, ...params) {
-		// Emit event to remote
-		this._stream.send ('evt', {
-			params : params,
-			id     : id,
-		});
-	}
-
+	
 	_genClass () {
 		// Create handler for proxy class
 		let proxyHandler = {
@@ -89,12 +110,6 @@ class Rpc extends EventEmitter {
 				isError: false,
 				data: response,
 			});
-		});
-
-		// Listen for remote user events
-		this._stream.on ('evt', (data) => {
-			// Rebroadcast to listeners on self
-			this.emit ('event.' + data.id, ...data.params);
 		});
 	}
 
