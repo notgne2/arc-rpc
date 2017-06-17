@@ -4,7 +4,8 @@
   "description": "Asynchronous Remote Classes make RPC simple",
   "main": "index.js",
   "dependencies": {
-    "node-ipc": "^9.0.1",
+    "socket.io": "^2.0.3",
+    "socket.io-client": "^2.0.3",
     "tweetnacl": "^1.0.0",
     "uuid": "^3.0.1"
   },

@@ -13,15 +13,15 @@ Arc RPC allows you to remotely call functions on other processes or even other h
 
 ## How to use it
 
-Here is a basic example of using RPC with `node-ipc`
+Here is a basic example of using RPC with `socket.io`
 
 `Server.js`
 
 ```js
-// Include library for IPC-RPC clients
-let ClientIpcRpc = require("arc-rpc").ClientIpcRpc
+// Include library for socket RPC clients
+let ClientSocketRpc = require("arc-rpc").ClientSocketRpc
 
-// Define `serverIpc` in higher scope for testing purposes
+// Define `serverRpc` in higher scope for testing purposes
 let serverRpc = null
 
 // Example remotely-callable class (this can be anything)
@@ -38,15 +38,15 @@ class ClientClass {
 	}
 }
 
-// Create RPC to server, on IPC channel testing, predefined encryption key, with an instance of the example client class
-serverRpc = new ClientIpcRpc ("testing", Buffer.from ('flbd+mTz8bIWl2DQxFMKHYAA1+PFxpEKmVNsZpFP5xQ=', 'base64'), new ClientClass())
+// Create RPC to server over socket.io socket, predefined encryption key, with an instance of the example client class
+serverRpc = new ClientSocketRpc ("127.0.0.1", 9919, Buffer.from ('flbd+mTz8bIWl2DQxFMKHYAA1+PFxpEKmVNsZpFP5xQ=', 'base64'), new ClientClass())
 ```
 
 `Client.js`
 
 ```js
-// Include library for IPC-RPC servers
-let ServerIpcRpcMaster = require("arc-rpc").ServerIpcRpcMaster
+// Include library for socket RPC servers
+let ServerSocketRpcMaster = require("arc-rpc").ServerSocketRpcMaster
 
 
 // Example remotely-callable class (this can be anything)
@@ -56,8 +56,8 @@ class ServerClass {
 	}
 }
 
-// Create RPC master/listener, on IPC channel testing, predefined encryption key, with an instance of the example server class
-let rpcMaster = new ServerIpcRpcMaster ("testing", Buffer.from ('flbd+mTz8bIWl2DQxFMKHYAA1+PFxpEKmVNsZpFP5xQ=', 'base64'), new ServerClass())
+// Create RPC master/listener, on socket.io connection, predefined encryption key, with an instance of the example server class
+let rpcMaster = new ServerSocketRpcMaster (9919, Buffer.from ('flbd+mTz8bIWl2DQxFMKHYAA1+PFxpEKmVNsZpFP5xQ=', 'base64'), new ServerClass())
 
 // Listen for new clients
 rpcMaster.on("client", (clientRpc) => {
@@ -70,10 +70,6 @@ rpcMaster.on("client", (clientRpc) => {
 	console.log("Remotely called client test!")
 })
 ```
-
-## Why are you encrypting IPC streams??
-
-This is made for a specific project, soon the node-ipc connections will be replaced with net sockets, or be replaced with a net library. I know, it's silly this way.
 
 ## Basic documentation
 

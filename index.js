@@ -1,16 +1,18 @@
 'use strict'; // always strict mode
 
 // Import dependencies
-const EventEmitter = require ('events').EventEmitter;
-const uuid         = require ('uuid');
-const ipc          = require ('node-ipc');
-const nacl         = require ('tweetnacl');
+const EventEmitter   = require ('events').EventEmitter;
+const uuid           = require ('uuid');
+const SocketIo       = require ('socket.io');
+const SocketIoClient = require ('socket.io-client');
+const nacl           = require ('tweetnacl');
 
 // Create RPC events class
 class RpcEvents extends EventEmitter {
   constructor (stream) {
     super ();
 
+    // Store stream variable as property and listen for events
     this._stream = stream;
     this._listen ();
   }
@@ -96,8 +98,8 @@ class Rpc extends EventEmitter {
       // Handle inexistence
       if (handler == null) {
         this._stream.send ('fnRes.' + call.resId, {
-          isError: true,
-          data: "No such method",
+          isError : true,
+          data    : 'No such method',
         });
 
         return;
@@ -155,7 +157,7 @@ class Rpc extends EventEmitter {
   }
 }
 
-class ServerIpcInterface extends EventEmitter {
+class ServerSocketInterface extends EventEmitter {
   constructor (socket, cryptKey, onDisconnect) {
     super ();
 
@@ -169,11 +171,7 @@ class ServerIpcInterface extends EventEmitter {
   }
 
   _listen () {
-    ipc.server.on ('message', (data, socket) => {
-      if (socket.id != this._socket.id) {
-        return // Not for our socket, ignore
-      }
-
+    this._socket.on ('message', (data) => {
       // silently ignore bad data
       if (data.nonce == null || data.encrypted == null) return;
 
@@ -190,11 +188,7 @@ class ServerIpcInterface extends EventEmitter {
       this.emit (decoded.id, decoded.data);
     });
 
-    ipc.server.on ('socket.disconnected', (socket) => {
-      if (socket.id != this._socket.id) {
-        return // Not for our socket, ignore
-      }
-
+    this._socket.on ('disconnect', () => {
       // Run self ondisconnect to handle server disconnection
       this._onDisconnect ();
     });
@@ -214,17 +208,17 @@ class ServerIpcInterface extends EventEmitter {
     let encrypted = nacl.secretbox (Buffer.from (encoded), nonce, this._cryptKey);
 
     // Send nonce, from secret key, and encrypted data over IPC
-    ipc.server.emit (this._socket, 'message', {
+    this._socket.emit ('message', {
       'nonce'     : Buffer.from (nonce).toString ('base64'),
       'encrypted' : Buffer.from (encrypted).toString ('base64')
     });
   }
 }
 
-class ServerIpcRpc extends Rpc {
+class ServerSocketRpc extends Rpc {
   constructor (socket, cryptKey, child) {
     // Create event interface from provided ipc socket
-    let ipcInterface = new ServerIpcInterface (socket, cryptKey, () => {
+    let ipcInterface = new ServerSocketInterface (socket, cryptKey, () => {
       // Induce self disconnect when socket interface disconnected
       this._disconnect ();
     });
@@ -234,48 +228,38 @@ class ServerIpcRpc extends Rpc {
   }
 }
 
-class ServerIpcRpcMaster extends EventEmitter {
-  constructor(namespace, cryptKey, child) {
+class ServerSocketRpcMaster extends EventEmitter {
+  constructor(port, cryptKey, child) {
     super ();
 
-    // Build IPC
-    ipc.config.id     = namespace;
-    ipc.config.retry  = 1500;
-    ipc.config.silent = true;
+    let socketIo = new SocketIo ();
 
-    // Start IPC server
-    ipc.serve ();
-    ipc.server.start ();
-
-    ipc.server.on ('connect', (socket) => {
-      let clientRpc = new ServerIpcRpc (socket, cryptKey, child);
+    socketIo.on ('connection', (socket) => {
+      let clientRpc = new ServerSocketRpc (socket, cryptKey, child);
       this.emit ('client', clientRpc);
     });
+
+
+    socketIo.listen (port);
   }
 }
 
-class ClientIpcInterface extends EventEmitter {
-  constructor (namespace, cryptKey) {
+class ClientSocketInterface extends EventEmitter {
+  constructor (host, port, cryptKey) {
     // Create parent event emitter
     super ();
 
-    this._namespace = namespace;
+    let socket = SocketIoClient ('http://' + host + ':' + port);
+
     this._cryptKey  = cryptKey;
+    this._socket = socket;
 
-    // build ipc
-    ipc.config.id     = namespace;
-    ipc.config.retry  = 1500;
-    ipc.config.silent = true;
-
-    // Connect to server on specified namespace
-    ipc.connectTo (namespace, () => {
-      // Listen for events
-      this._listen ();
-    });
+    this._listen ();
   }
 
+
   _listen () {
-    ipc.of[this._namespace].on ('message', (data) => {
+    this._socket.on ('message', (data) => {
       // silently ignore bad data
       if (data.nonce == null || data.encrypted == null) return;
 
@@ -307,22 +291,22 @@ class ClientIpcInterface extends EventEmitter {
     let encrypted = nacl.secretbox (Buffer.from (encoded), nonce, this._cryptKey)
 
     // Send nonce, from secret key, and encrypted data over IPC
-    ipc.of[this._namespace].emit ('message', {
+    this._socket.emit ('message', {
       'nonce'     : Buffer.from (nonce).toString ('base64'),
       'encrypted' : Buffer.from (encrypted).toString ('base64')
     });
   }
 }
 
-class ClientIpcRpc extends Rpc {
-  constructor (namespace, cryptKey, client) {
+class ClientSocketRpc extends Rpc {
+  constructor (host, port, cryptKey, client) {
     // Create client IPC interface for provided namespace
-    let ipcInterface = new ClientIpcInterface (namespace, cryptKey);
+    let socketInterface = new ClientSocketInterface (host, port, cryptKey);
 
     // Create parent RPC module using interface as stream
-    super (ipcInterface, client);
+    super (socketInterface, client);
   }
 }
 
 // Export classes
-exports = module.exports = { Rpc, ClientIpcRpc, ServerIpcRpcMaster };
+exports = module.exports = { Rpc, ClientSocketRpc, ServerSocketRpcMaster };
