@@ -27,7 +27,7 @@ let serverRpc = null
 // Example remotely-callable class (this can be anything)
 class ClientClass {
 	// Example method
-	clientTest() {
+	async clientTest() {
 		console.log("Remotely called by server, calling server method.")
 
 		// Call remote as if it was a local class instance
@@ -51,7 +51,7 @@ let ServerSocketRpcMaster = require("arc-rpc").ServerSocketRpcMaster
 
 // Example remotely-callable class (this can be anything)
 class ServerClass {
-	serverTest() {
+	async serverTest() {
 		console.log("Remotely called by client.")
 	}
 }
@@ -60,7 +60,7 @@ class ServerClass {
 let rpcMaster = new ServerSocketRpcMaster (9919, Buffer.from ('flbd+mTz8bIWl2DQxFMKHYAA1+PFxpEKmVNsZpFP5xQ=', 'base64'), new ServerClass())
 
 // Listen for new clients
-rpcMaster.on("client", (clientRpc) => {
+rpcMaster.on("client", async (clientRpc) => {
 	console.log("Got new client, remotely calling client test.")
 
 	// Call remote as if it was a local class instance
