@@ -49,6 +49,9 @@ class Rpc extends EventEmitter {
     // Set child for handling plain events
     this.events = new RpcEvents (stream);
 
+    // Give child class instance a copy of this/RPC
+    if (child._handleRpc != null) child._handleRpc (this);
+
     // Set private variables
     this._stream = stream;
     this._child = child;
@@ -93,7 +96,7 @@ class Rpc extends EventEmitter {
       let response = null;
 
       // Find internal handler
-      let handler = this._child[call.fnId];
+      let handler = this._child[call.fnId].bind(this._child);
 
       // Handle inexistence
       if (handler == null) {
