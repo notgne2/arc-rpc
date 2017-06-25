@@ -50,7 +50,7 @@ class Rpc extends EventEmitter {
     this.events = new RpcEvents (stream);
 
     // Give child class instance a copy of this/RPC
-    if (child._handleRpc != null) child._handleRpc (this);
+    if (child != null && child._handleRpc != null) child._handleRpc (this);
 
     // Set private variables
     this._stream = stream;
@@ -108,10 +108,22 @@ class Rpc extends EventEmitter {
         return;
       }
 
+      let params = call.params.map ((param) => {
+        if (param.isFunc) {
+          return (...fnParams) => {
+            this._stream.send ('cbRes.' + param.funcId, {
+              params: fnParams,
+            });
+          }
+        } else {
+          return param.data;
+        }
+      })
+
       // Try getting response from handler or handle error
       try {
         // Run with applied params and await result
-        response = await handler (...call.params);
+        response = await handler (...params);
       } catch (err) {
         // Emit error as response
         this._stream.send ('fnRes.' + call.resId, {
@@ -134,11 +146,31 @@ class Rpc extends EventEmitter {
     // Generate ID to listen for responses on
     let resId = uuid ();
 
+    let parsedParams = params.map ((param) => {
+      if (typeof param == "function") {
+        let funcId = uuid ();
+
+        this._stream.on ('cbRes.' + funcId, (res) => {
+          param (...res.params);
+        });
+
+        return {
+          isFunc: true,
+          funcId: funcId,
+        }
+      } else {
+        return {
+          isFunc: false,
+          data: param,
+        }
+      }
+    });
+
     // Emit the remote call event
     this._stream.send ('fnCall', {
       fnId: fnId,
       resId: resId,
-      params: params,
+      params: parsedParams,
     });
 
     // Create and await a promise to get function response
