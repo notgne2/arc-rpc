@@ -15,7 +15,7 @@ Arc RPC allows you to remotely call functions on other processes or even other h
 
 Here is a basic example of using RPC with `socket.io`
 
-`Server.js`
+`client.js`
 
 ```js
 // Include library for socket RPC clients
@@ -42,7 +42,7 @@ class ClientClass {
 serverRpc = new ClientSocketRpc ("127.0.0.1", 9919, Buffer.from ('flbd+mTz8bIWl2DQxFMKHYAA1+PFxpEKmVNsZpFP5xQ=', 'base64'), new ClientClass())
 ```
 
-`Client.js`
+`server.js`
 
 ```js
 // Include library for socket RPC servers
