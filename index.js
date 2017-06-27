@@ -15,6 +15,7 @@ class RpcEvents extends EventEmitter {
     this._listen ();
   }
 
+  // Send new event to remote
   send (id, ...params) {
     // Emit event to remote
     this._stream.send ('evt', {
@@ -84,6 +85,7 @@ class Rpc extends EventEmitter {
     return proxy;
   }
 
+  // Listen for RPC calls
   listen () {
     // Don't bother if no child
     if (this._child == null) return;
@@ -183,19 +185,25 @@ class Rpc extends EventEmitter {
     return response;
   }
 
+  // Destroy underlying stream
+  destroy () {
+    this._stream.destroy ();
+  }
+
   // Induced by implementations of `Rpc`
-  _disconnect () {
+  _onDisconnect () {
     // Emit disconnect event so users of RPC will be aware
-    this.emit ('disconnect');
+    this.emit ('disconnected');
   }
 }
 
 class ServerSocketInterface extends EventEmitter {
-  constructor (client) {
+  constructor (client, onDisconnect) {
     super ();
 
     // Set private class variables
     this._client       = client;
+    this._onDisconnect = onDisconnect;
 
     // Listen for IPC data
     this._listen ();
@@ -209,6 +217,10 @@ class ServerSocketInterface extends EventEmitter {
       // emit event
       this.emit (decoded.id, decoded.data);
     });
+
+    this._client.on ('disconnected', () => {
+      this._onDisconnect ();
+    });
   }
 
   send (id, data) {
@@ -221,12 +233,19 @@ class ServerSocketInterface extends EventEmitter {
     // Send nonce, from secret key, and data over IPC
     this._client.send (encoded);
   }
+
+  // Destroy underlying connection
+  destroy () {
+    this._client.destroy ();
+  }
 }
 
 class ServerSocketRpc extends Rpc {
   constructor (client, child) {
     // Create event interface from provided client
-    let ipcInterface = new ServerSocketInterface (client);
+    let ipcInterface = new ServerSocketInterface (client, () => {
+      this._onDisconnect ();
+    });
 
     // Create parent RPC instance using interface as stream
     super (ipcInterface, child);
@@ -239,36 +258,49 @@ class ServerSocketRpcMaster extends EventEmitter {
   constructor(port, keyPair, child) {
     super ();
 
+    // Create new server using cryptotranny
     let server = new TrannyServer(keyPair, port);
 
+    // Listen for new clients
     server.on ('client', (client) => {
+      // Wrap client in RPC
       let clientRpc = new ServerSocketRpc (client, child);
+      // Emit new client
       this.emit ('client', clientRpc);
     });
   }
 }
 
 class ClientSocketInterface extends EventEmitter {
-  constructor (host, port, keyPair, remotePk) {
+  constructor (host, port, keyPair, remotePk, onDisconnect) {
     // Create parent event emitter
     super ();
 
+    // Create new connection to specified host using cryptotranny
     let server = new TrannyClient(host, port, keyPair, remotePk)
 
-    this._server = server;
+    // Set private properties
+    this._server       = server;
+    this._onDisconnect = onDisconnect;
 
+    // Listen
     this._listen ();
   }
 
-
+  // Listen for all events
   _listen () {
     this._server.on ('message', (data) => {
       let decoded = JSON.parse (data.toString ());
 
       this.emit (decoded.id, decoded.data);
-    })
+    });
+
+    this._server.on ('disconnected', () => {
+      this._onDisconnect ();
+    });
   }
 
+  // Send event to remote
   send (id, data) {
     // Encode object to JSON
     let encoded = Buffer.from (JSON.stringify ({
@@ -278,12 +310,19 @@ class ClientSocketInterface extends EventEmitter {
 
     this._server.send (encoded);
   }
+
+  // Destroy underlying connection
+  destroy () {
+    this._server.destroy ();
+  }
 }
 
 class ClientSocketRpc extends Rpc {
   constructor (host, port, keyPair, remotePk, client) {
     // Create client IPC interface for provided namespace
-    let socketInterface = new ClientSocketInterface (host, port, keyPair, remotePk);
+    let socketInterface = new ClientSocketInterface (host, port, keyPair, remotePk, () => {
+      this._onDisconnect ();
+    });
 
     // Create parent RPC module using interface as stream
     super (socketInterface, client);
