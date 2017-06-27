@@ -53,9 +53,6 @@ class Rpc extends EventEmitter {
     // Set private variables
     this._stream = stream;
     this._child = child;
-
-    // Listen for events if have child class
-    if (child != null) this._listen ();
   }
 
   _genClass () {
@@ -87,7 +84,10 @@ class Rpc extends EventEmitter {
     return proxy;
   }
 
-  _listen () {
+  listen () {
+    // Don't bother if no child
+    if (this._child == null) return;
+
     // Listen for function calls
     this._stream.on ('fnCall', async (call) => {
       // Create response variable on higher scope
@@ -224,12 +224,14 @@ class ServerSocketInterface extends EventEmitter {
 }
 
 class ServerSocketRpc extends Rpc {
-  constructor (socket, child) {
-    // Create event interface from provided ipc socket
-    let ipcInterface = new ServerSocketInterface (socket);
+  constructor (client, child) {
+    // Create event interface from provided client
+    let ipcInterface = new ServerSocketInterface (client);
 
     // Create parent RPC instance using interface as stream
     super (ipcInterface, child);
+
+    this.pk = client.pk;
   }
 }
 
