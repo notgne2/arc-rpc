@@ -1,11 +1,9 @@
 'use strict'; // always strict mode
 
 // Import dependencies
-const EventEmitter   = require ('events').EventEmitter;
-const uuid           = require ('uuid');
-const SocketIo       = require ('socket.io');
-const SocketIoClient = require ('socket.io-client');
-const nacl           = require ('tweetnacl');
+const EventEmitter                               = require ('events').EventEmitter;
+const uuid                                       = require ('uuid');
+const { TrannyServer, TrannyClient, genKeyPair: genSocketKeyPair } = require ('cryptotranny');
 
 // Create RPC events class
 class RpcEvents extends EventEmitter {
@@ -193,70 +191,42 @@ class Rpc extends EventEmitter {
 }
 
 class ServerSocketInterface extends EventEmitter {
-  constructor (socket, cryptKey, onDisconnect) {
+  constructor (client) {
     super ();
 
     // Set private class variables
-    this._socket       = socket;
-    this._onDisconnect = onDisconnect;
-    this._cryptKey     = cryptKey;
+    this._client       = client;
 
     // Listen for IPC data
     this._listen ();
   }
 
   _listen () {
-    this._socket.on ('message', (data) => {
-      // silently ignore bad data
-      if (data.nonce == null || data.encrypted == null) return;
-
-      // open nacl secret box
-      let decrypted = nacl.secretbox.open (Buffer.from (data.encrypted, 'base64'), Buffer.from (data.nonce, 'base64'), this._cryptKey);
-
-      // silently ignore bad crypt, TODO: handle
-      if (decrypted == false) return;
-
+    this._client.on ('message', (data) => {
       // decode JSON message
-      let decoded = JSON.parse (Buffer.from (decrypted).toString ());
+      let decoded = JSON.parse (data.toString ());
 
       // emit event
       this.emit (decoded.id, decoded.data);
-    });
-
-    this._socket.on ('disconnect', () => {
-      // Run self ondisconnect to handle server disconnection
-      this._onDisconnect ();
     });
   }
 
   send (id, data) {
     // Encode object to JSON
-    let encoded = JSON.stringify ({
+    let encoded = Buffer.from (JSON.stringify ({
       'id'   : id,
       'data' : data
-    });
+    }));
 
-    // Generate a random nonce for cryptography
-    let nonce = nacl.randomBytes (nacl.box.nonceLength);
-
-    // Encrypt encoded object using nonce, hardcoded server public key and our secret key
-    let encrypted = nacl.secretbox (Buffer.from (encoded), nonce, this._cryptKey);
-
-    // Send nonce, from secret key, and encrypted data over IPC
-    this._socket.emit ('message', {
-      'nonce'     : Buffer.from (nonce).toString ('base64'),
-      'encrypted' : Buffer.from (encrypted).toString ('base64')
-    });
+    // Send nonce, from secret key, and data over IPC
+    this._client.send (encoded);
   }
 }
 
 class ServerSocketRpc extends Rpc {
-  constructor (socket, cryptKey, child) {
+  constructor (socket, child) {
     // Create event interface from provided ipc socket
-    let ipcInterface = new ServerSocketInterface (socket, cryptKey, () => {
-      // Induce self disconnect when socket interface disconnected
-      this._disconnect ();
-    });
+    let ipcInterface = new ServerSocketInterface (socket);
 
     // Create parent RPC instance using interface as stream
     super (ipcInterface, child);
@@ -264,79 +234,54 @@ class ServerSocketRpc extends Rpc {
 }
 
 class ServerSocketRpcMaster extends EventEmitter {
-  constructor(port, cryptKey, child) {
+  constructor(port, keyPair, child) {
     super ();
 
-    let socketIo = new SocketIo ();
+    let server = new TrannyServer(keyPair, port);
 
-    socketIo.on ('connection', (socket) => {
-      let clientRpc = new ServerSocketRpc (socket, cryptKey, child);
+    server.on ('client', (client) => {
+      let clientRpc = new ServerSocketRpc (client, child);
       this.emit ('client', clientRpc);
     });
-
-
-    socketIo.listen (port);
   }
 }
 
 class ClientSocketInterface extends EventEmitter {
-  constructor (host, port, cryptKey) {
+  constructor (host, port, keyPair, remotePk) {
     // Create parent event emitter
     super ();
 
-    let socket = SocketIoClient ('http://' + host + ':' + port);
+    let server = new TrannyClient(host, port, keyPair, remotePk)
 
-    this._cryptKey  = cryptKey;
-    this._socket = socket;
+    this._server = server;
 
     this._listen ();
   }
 
 
   _listen () {
-    this._socket.on ('message', (data) => {
-      // silently ignore bad data
-      if (data.nonce == null || data.encrypted == null) return;
+    this._server.on ('message', (data) => {
+      let decoded = JSON.parse (data.toString ());
 
-      // open nacl secret box
-      let decrypted = nacl.secretbox.open (Buffer.from (data.encrypted, 'base64'), Buffer.from (data.nonce, 'base64'), this._cryptKey);
-
-      // silently ignore bad crypt, TODO: handle
-      if (decrypted == null) return;
-
-      // decode JSON message
-      let decoded = JSON.parse (Buffer.from (decrypted).toString ());
-
-      // emit event
       this.emit (decoded.id, decoded.data);
-    });
+    })
   }
 
   send (id, data) {
     // Encode object to JSON
-    let encoded = JSON.stringify ({
+    let encoded = Buffer.from (JSON.stringify ({
       'id'   : id,
       'data' : data,
-    });
+    }));
 
-    // Generate a random nonce for cryptography
-    let nonce = nacl.randomBytes (nacl.box.nonceLength)
-
-    // Encrypt encoded object using nonce, hardcoded server public key and our secret key
-    let encrypted = nacl.secretbox (Buffer.from (encoded), nonce, this._cryptKey)
-
-    // Send nonce, from secret key, and encrypted data over IPC
-    this._socket.emit ('message', {
-      'nonce'     : Buffer.from (nonce).toString ('base64'),
-      'encrypted' : Buffer.from (encrypted).toString ('base64')
-    });
+    this._server.send (encoded);
   }
 }
 
 class ClientSocketRpc extends Rpc {
-  constructor (host, port, cryptKey, client) {
+  constructor (host, port, keyPair, remotePk, client) {
     // Create client IPC interface for provided namespace
-    let socketInterface = new ClientSocketInterface (host, port, cryptKey);
+    let socketInterface = new ClientSocketInterface (host, port, keyPair, remotePk);
 
     // Create parent RPC module using interface as stream
     super (socketInterface, client);
@@ -344,4 +289,4 @@ class ClientSocketRpc extends Rpc {
 }
 
 // Export classes
-exports = module.exports = { Rpc, ClientSocketRpc, ServerSocketRpcMaster };
+exports = module.exports = { Rpc, ClientSocketRpc, ServerSocketRpcMaster, genSocketKeyPair };
