@@ -96,7 +96,7 @@ class Rpc extends EventEmitter {
       let response = null;
 
       // Find internal handler
-      let handler = this._child[call.fnId].bind(this._child);
+      let handler = this._child[call.fnId];
 
       // Handle inexistence
       if (handler == null) {
@@ -123,7 +123,7 @@ class Rpc extends EventEmitter {
       // Try getting response from handler or handle error
       try {
         // Run with applied params and await result
-        response = await handler (...params);
+        response = await handler.bind (this._child) (...params);
       } catch (err) {
         // Emit error as response
         this._stream.send ('fnRes.' + call.resId, {
