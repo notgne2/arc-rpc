@@ -3,7 +3,10 @@
 // Import dependencies
 const EventEmitter                               = require ('events').EventEmitter;
 const uuid                                       = require ('uuid');
+const ObjectPath                                 = require ('object-path');
 const { TrannyServer, TrannyClient, genKeyPair: genSocketKeyPair } = require ('cryptotranny');
+
+const objectPath = ObjectPath.create ({ includeInheritedProps: true });
 
 // Create RPC events class
 class RpcEvents extends EventEmitter {
@@ -39,56 +42,105 @@ class Rpc extends EventEmitter {
     // Induce spawning of parent/super event emitter
     super ();
 
+    this._lastData = {};
+
     // Set own ID for identification
     this.id = uuid ();
 
     // Set mock for accessing methods
-    this.class = this._genClass ();
+    this.class = this._genClass ({}, []);
 
     // Set child for handling plain events
     this.events = new RpcEvents (stream);
 
-    // Give child class instance a copy of this/RPC
-    if (child != null && child._handleRpc != null) child._handleRpc (this);
-
     // Set private variables
     this._stream = stream;
     this._child = child;
+
+    // Give child class instance a copy of this/RPC
+    if (child != null && child._handleRpc != null) child._handleRpc (this);
+
+    this._listen ();
   }
 
-  _genClass () {
+  _genClass (base, path) {
     // Create handler for proxy class
     let proxyHandler = {
       // Handle get on proxy class
       get: (target, property) => {
-        // Return function which takes all trailing params
-        return (async (...params) => {
-          // Issue remote call with property name and recieved params
-          let result = await this._call (property, params);
+        if (base[property] != null) {
+          return base[property];
+        }
 
-          // Check if response is error
-          if (result.isError) {
-            // Throw if error to emulate native function
-            throw result.data;
+        let propPath = path.slice (0);
+        propPath.push (property);
+
+        let handler = (async (...params) => {
+          let out = await this._call (propPath, params);
+
+          if (out.isError) {
+            throw out.data;
           } else {
-            // Non error, simply return data
-            return result.data;
+            return out.data;
           }
         });
+
+        return this._genClass (handler, propPath)
       },
     };
 
     // Create a new `Proxy` to act as our class
-    let proxy = new Proxy ({}, proxyHandler);
+    let proxy = new Proxy (base, proxyHandler);
 
     // Return the proxy
     return proxy;
   }
 
-  // Listen for RPC calls
-  listen () {
+  _listen () {
+    this._stream.on ('dataUpdate', async (data) => {
+      this._lastData = data;
+      this.class = this._genClass (data, []);
+    });
+
+    this._stream.on ('propUpdate', async (data) => {
+      objectPath.set (this._lastData, data.path, data.value);
+      this.class = this._genClass (this._lastData, []);
+    });
+  }
+
+  allow () {
     // Don't bother if no child
     if (this._child == null) return;
+
+    this._stream.send ('dataUpdate', this._child);
+
+    let traverse = (part, path) => {
+      Object.keys (part).forEach((key) => {
+        if (part[key] !== null && part[key] instanceof Object) {
+          let partPath = path.slice (0);
+          partPath.push (key);
+
+          part[key] = new Proxy (part[key], {
+            set: (target, prop, value, reciever) => {
+              let propPath = partPath.slice (0);
+              propPath.push (prop);
+
+              this._stream.send ('propUpdate', {
+                path: propPath,
+                value: value,
+              });
+
+              target[prop] = value;
+              return true; 
+            },
+          });
+
+          traverse(part[key], partPath);
+        }
+      });
+    };
+
+    traverse (this._child, []);
 
     // Listen for function calls
     this._stream.on ('fnCall', async (call) => {
@@ -96,11 +148,11 @@ class Rpc extends EventEmitter {
       let response = null;
 
       // Find internal handler
-      let handler = this._child[call.fnId];
+      let handler = objectPath.get (this._child, call.path);
 
       // Handle inexistence
       if (handler == null) {
-        this._stream.send ('fnRes.' + call.resId, {
+        this._stream.send (call.resId, {
           isError : true,
           data    : 'No such method',
         });
@@ -111,13 +163,13 @@ class Rpc extends EventEmitter {
       let params = call.params.map ((param) => {
         if (param.isFunc) {
           return (...fnParams) => {
-            this._stream.send ('cbRes.' + param.funcId, {
+            this._stream.send (param.funcId, {
               params: fnParams,
             });
           }
         } else {
           return param.data;
-        }
+        };
       })
 
       // Try getting response from handler or handle error
@@ -126,7 +178,7 @@ class Rpc extends EventEmitter {
         response = await handler.bind (this._child) (...params);
       } catch (err) {
         // Emit error as response
-        this._stream.send ('fnRes.' + call.resId, {
+        this._stream.send (call.resId, {
           isError: true,
           data: err,
         });
@@ -135,28 +187,28 @@ class Rpc extends EventEmitter {
       }
 
       // Emit success and function return result
-      this._stream.send ('fnRes.' + call.resId, {
+      this._stream.send (call.resId, {
         isError: false,
         data: response,
       });
     });
   }
 
-  async _call (fnId, params) {
+  async _call (path, params) {
     // Generate ID to listen for responses on
     let resId = uuid ();
 
     let parsedParams = params.map ((param) => {
       if (typeof param == "function") {
-        let funcId = uuid ();
+        let cbResId = uuid ();
 
-        this._stream.on ('cbRes.' + funcId, (res) => {
+        this._stream.on (cbResId, (res) => {
           param (...res.params);
         });
 
         return {
           isFunc: true,
-          funcId: funcId,
+          resId: cbResId,
         }
       } else {
         return {
@@ -168,7 +220,7 @@ class Rpc extends EventEmitter {
 
     // Emit the remote call event
     this._stream.send ('fnCall', {
-      fnId: fnId,
+      path: path,
       resId: resId,
       params: parsedParams,
     });
@@ -176,7 +228,7 @@ class Rpc extends EventEmitter {
     // Create and await a promise to get function response
     let response = await new Promise ((resolve, reject) => {
       // Listen for a response on generated response ID
-      this._stream.once ('fnRes.' + resId, (response) => {
+      this._stream.once (resId, (response) => {
         // Resolve promise with recieved data
         resolve (response);
       });
