@@ -113,39 +113,41 @@ class Rpc extends EventEmitter {
     });
   }
 
-  allow () {
+  allow (updates) {
     // Don't bother if no child
     if (this._child == null) return;
 
-    this._stream.send ('dataUpdate', this._child);
+    if (updates) {
+      this._stream.send ('dataUpdate', this._child);
 
-    let traverse = (part, path) => {
-      Object.keys (part).forEach((key) => {
-        if (part[key] !== null && part[key] instanceof Object) {
-          let partPath = path.slice (0);
-          partPath.push (key);
+      let traverse = (part, path) => {
+        Object.keys (part).forEach((key) => {
+          if (part[key] !== null && part[key] instanceof Object) {
+            let partPath = path.slice (0);
+            partPath.push (key);
 
-          part[key] = new Proxy (part[key], {
-            set: (target, prop, value, reciever) => {
-              let propPath = partPath.slice (0);
-              propPath.push (prop);
+            part[key] = new Proxy (part[key], {
+              set: (target, prop, value, reciever) => {
+                let propPath = partPath.slice (0);
+                propPath.push (prop);
 
-              this._stream.send ('propUpdate', {
-                path: propPath,
-                value: value,
-              });
+                this._stream.send ('propUpdate', {
+                  path: propPath,
+                  value: value,
+                });
 
-              target[prop] = value;
-              return true; 
-            },
-          });
+                target[prop] = value;
+                return true; 
+              },
+            });
 
-          traverse(part[key], partPath);
-        }
-      });
-    };
+            traverse(part[key], partPath);
+          }
+        });
+      };
 
-    traverse (this._child, []);
+      traverse (this._child, []);
+    }
 
     // Listen for function calls
     this._stream.on ('fnCall', async (call) => {
