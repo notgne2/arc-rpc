@@ -4,6 +4,7 @@
 const EventEmitter                               = require ('events').EventEmitter;
 const uuid                                       = require ('uuid');
 const ObjectPath                                 = require ('object-path');
+const Dump                                       = require ('dumpjs');
 const { TrannyServer, TrannyClient, genKeyPair: genSocketKeyPair } = require ('cryptotranny');
 
 const objectPath = ObjectPath.create ({ includeInheritedProps: true });
@@ -268,7 +269,7 @@ class ServerSocketInterface extends EventEmitter {
   _listen () {
     this._client.on ('message', (data) => {
       // decode JSON message
-      let decoded = JSON.parse (data.toString ());
+      let decoded = Dump.restore (data.toString ());
 
       // emit event
       this.emit (decoded.id, decoded.data);
@@ -281,7 +282,7 @@ class ServerSocketInterface extends EventEmitter {
 
   send (id, data) {
     // Encode object to JSON
-    let encoded = Buffer.from (JSON.stringify ({
+    let encoded = Buffer.from (Dump.dump ({
       'id'   : id,
       'data' : data
     }));
@@ -346,7 +347,7 @@ class ClientSocketInterface extends EventEmitter {
   // Listen for all events
   _listen () {
     this._server.on ('message', (data) => {
-      let decoded = JSON.parse (data.toString ());
+      let decoded = Dump.restore (data.toString ());
 
       this.emit (decoded.id, decoded.data);
     });
@@ -359,7 +360,7 @@ class ClientSocketInterface extends EventEmitter {
   // Send event to remote
   send (id, data) {
     // Encode object to JSON
-    let encoded = Buffer.from (JSON.stringify ({
+    let encoded = Buffer.from (Dump.dump ({
       'id'   : id,
       'data' : data,
     }));
