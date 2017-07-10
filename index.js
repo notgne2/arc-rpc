@@ -68,12 +68,16 @@ class Rpc extends EventEmitter {
     let proxyHandler = {
       // Handle get on proxy class
       get: (target, property) => {
-        if (base[property] != null) {
-          return base[property];
-        }
-
         let propPath = path.slice (0);
         propPath.push (property);
+
+        if (base[property] != null) {
+          if (base[property] instanceof Object) {
+            return this._genClass (base[property], propPath);
+          } else {
+            return base[property];
+          }
+        }
 
         let handler = (async (...params) => {
           let out = await this._call (propPath, params);
