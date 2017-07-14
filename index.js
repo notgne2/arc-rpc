@@ -81,10 +81,10 @@ class Rpc extends EventEmitter {
         }
 
         let handler = (async (...params) => {
-          let out = await this._call (propPath, params);
+          let out = await this._call (propPath, params, path);
 
           if (out.isError) {
-            throw out.data;
+            throw new Error(out.data);
           } else {
             return out.data;
           }
@@ -154,8 +154,9 @@ class Rpc extends EventEmitter {
       // Create response variable on higher scope
       let response = null;
 
-      // Find internal handler
+      // Find internal handler and parent
       let handler = objectPath.get (this._child, call.path);
+      let parent  = objectPath.get (this._child, call.parentPath);
 
       // Handle inexistence
       if (handler == null) {
@@ -182,7 +183,7 @@ class Rpc extends EventEmitter {
       // Try getting response from handler or handle error
       try {
         // Run with applied params and await result
-        response = await handler.bind (this._child) (...params);
+        response = await handler.bind (parent) (...params);
       } catch (err) {
         // Emit error as response
         this._stream.send (call.resId, {
@@ -201,7 +202,7 @@ class Rpc extends EventEmitter {
     });
   }
 
-  async _call (path, params) {
+  async _call (path, params, parentPath) {
     // Generate ID to listen for responses on
     let resId = uuid ();
 
@@ -214,22 +215,23 @@ class Rpc extends EventEmitter {
         });
 
         return {
-          isFunc: true,
-          resId: cbResId,
+          isFunc : true,
+          resId  : cbResId,
         }
       } else {
         return {
-          isFunc: false,
-          data: param,
+          isFunc : false,
+          data   : param,
         }
       }
     });
 
     // Emit the remote call event
     this._stream.send ('fnCall', {
-      path: path,
-      resId: resId,
-      params: parsedParams,
+      path       : path,
+      parentPath : parentPath,
+      resId      : resId,
+      params     : parsedParams,
     });
 
     // Create and await a promise to get function response
