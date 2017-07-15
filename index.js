@@ -188,7 +188,7 @@ class Rpc extends EventEmitter {
         // Emit error as response
         this._stream.send (call.resId, {
           isError: true,
-          data: err,
+          data: err.toString (),
         });
 
         return;
