@@ -1,10 +1,11 @@
 'use strict'; // always strict mode
 
 // Import dependencies
-const EventEmitter                               = require ('events').EventEmitter;
-const uuid                                       = require ('uuid');
-const ObjectPath                                 = require ('object-path');
-const Dump                                       = require ('dumpjs');
+const EventEmitter = require ('events').EventEmitter;
+const uuid         = require ('uuid');
+const ObjectPath   = require ('object-path');
+const Dump         = require ('dumpjs');
+const Errio        = require ('errio');
 const { TrannyServer, TrannyClient, genKeyPair: genSocketKeyPair } = require ('cryptotranny');
 
 const objectPath = ObjectPath.create ({ includeInheritedProps: true });
@@ -84,7 +85,7 @@ class Rpc extends EventEmitter {
           let out = await this._call (propPath, params, path);
 
           if (out.isError) {
-            throw new Error(out.data);
+            throw Errio.fromObject (out.data);
           } else {
             return out.data;
           }
@@ -137,7 +138,7 @@ class Rpc extends EventEmitter {
                 });
 
                 target[prop] = value;
-                return true; 
+                return true;
               },
             });
 
@@ -188,7 +189,7 @@ class Rpc extends EventEmitter {
         // Emit error as response
         this._stream.send (call.resId, {
           isError: true,
-          data: err.toString (),
+          data: Errio.toObject (err),
         });
 
         return;
